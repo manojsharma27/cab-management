@@ -6,6 +6,7 @@ import com.ms.cabmgmt.exceptions.CabNotFoundException;
 import com.ms.cabmgmt.models.Cab;
 import com.ms.cabmgmt.repository.ICabRepository;
 import com.ms.cabmgmt.repository.data.CabIdleDurationEntry;
+import com.ms.cabmgmt.repository.data.CabTravelRecord;
 import com.ms.cabmgmt.requests.CabRegistrationRequest;
 import lombok.NonNull;
 import org.apache.commons.lang3.StringUtils;
@@ -13,8 +14,11 @@ import org.springframework.stereotype.Service;
 
 import javax.annotation.Resource;
 import java.util.Date;
+import java.util.HashSet;
+import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 
 @Service
@@ -57,11 +61,13 @@ public class CabServiceImpl implements CabService {
         }
         cab.setCurrentState(newState);
         cabRepository.save(cab);
+        Date currDate = new Date();
         if (newState == CabState.IDLE) {
-            cabRepository.addIdleDuration(new CabIdleDurationEntry(cabId, new Date(), null));
+            cabRepository.addIdleDuration(new CabIdleDurationEntry(cabId, currDate, null));
         } else {
-            cabRepository.updateIdleDurationEnd(cabId, new Date());
+            cabRepository.updateIdleDurationEnd(cabId, currDate);
         }
+        cabRepository.addCabTravelRecord(cab.getId(), newState, currDate);
     }
 
     @Override
@@ -72,6 +78,26 @@ public class CabServiceImpl implements CabService {
         }
         cab.setAvailable(availability);
         cabRepository.save(cab);
+    }
+
+    @Override
+    public long getCabIdleDuration(@NonNull String cabId, @NonNull Date fromTime, @NonNull Date toTime) {
+        Set<String> set = new HashSet<>();
+        set.add(cabId);
+        List<CabIdleDurationEntry> idleDurationEntries = cabRepository.getIdleDurationEntriesInRangeForCabs(set, fromTime, toTime);
+        long totalIdleDuration = 0;
+        for (CabIdleDurationEntry entry : idleDurationEntries) {
+            long entryToTime = entry.getToTime() == null ? System.currentTimeMillis() : entry.getToTime().getTime();
+            totalIdleDuration += entryToTime - entry.getFromTime().getTime();
+        }
+        return totalIdleDuration;
+    }
+
+    @Override
+    public List<CabTravelRecord> getCabHistoryInDuration(@NonNull String cabId, @NonNull Date fromTime, @NonNull Date toTime) {
+        Set<String> set = new HashSet<>();
+        set.add(cabId);
+        return cabRepository.getHistoryForCabsInDateRange(set, fromTime, toTime);
     }
 
     private Cab fetchCab(@NonNull String cabId) {

@@ -1,7 +1,9 @@
 package com.ms.cabmgmt.repository;
 
+import com.ms.cabmgmt.enums.CabState;
 import com.ms.cabmgmt.models.Cab;
 import com.ms.cabmgmt.repository.data.CabIdleDurationEntry;
+import com.ms.cabmgmt.repository.data.CabTravelRecord;
 
 import java.util.Date;
 import java.util.List;
@@ -27,4 +29,7 @@ public interface ICabRepository {
 
     List<CabIdleDurationEntry> getIdleDurationEntriesInRangeForCabs(Set<String> cabIds, Date fromTime, Date toTime);
 
+    List<CabTravelRecord> getHistoryForCabsInDateRange(Set<String> cabIds, Date fromTime, Date toTime);
+
+    void addCabTravelRecord(String id, CabState newState, Date currDate);
 }

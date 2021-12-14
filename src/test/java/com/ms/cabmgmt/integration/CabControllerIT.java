@@ -9,7 +9,9 @@ import com.ms.cabmgmt.models.Trip;
 import com.ms.cabmgmt.repository.ICabRepository;
 import com.ms.cabmgmt.repository.IRiderRepository;
 import com.ms.cabmgmt.repository.ITripRepository;
+import com.ms.cabmgmt.repository.data.CabTravelRecord;
 import com.ms.cabmgmt.requests.CabRegistrationRequest;
+import com.ms.cabmgmt.service.CabService;
 import org.apache.commons.collections4.CollectionUtils;
 import org.junit.After;
 import org.junit.Before;
@@ -51,6 +53,9 @@ public class CabControllerIT extends CabManagementITBase {
     @Resource
     private ITripRepository tripRepository;
 
+    @Resource
+    private CabService cabService;
+
     @Before
     public void init() {
         setupBase();
@@ -73,30 +78,84 @@ public class CabControllerIT extends CabManagementITBase {
 
     @Test
     public void testCabBooking() {
-        cityController.onBoard("Mumbai");
-        cityController.onBoard("Delhi");
-        cityController.onBoard("Pune");
-        cityController.onBoard("Goa");
+        initCitiesAndCabs();
 
-        ResponseEntity<String> registerRespEntity = cabController.register(getTestCabRegistrationRequest());
-        assertEquals(HttpStatus.OK, registerRespEntity.getStatusCode());
+        List<String> cabIds = getCabIdsWithUpdatedLocation();
 
-        String riderId = "testId";
-        riderRepository.save(new Rider(riderId, "GhostRider", "1234567890"));
+        cabController.updateAvailability(cabIds.get(0), false); // delhi
+        cabController.updateAvailability(cabIds.get(3), false); // mumbai
 
-        Stream.of(
-                CabRegistrationRequest.builder().driverName("Anil").vehicleNumber("MH XY 1234").build(),
-                CabRegistrationRequest.builder().driverName("Enna").vehicleNumber("MH XY 1234").build(),
-                CabRegistrationRequest.builder().driverName("Meena").vehicleNumber("MH XY 1234").build(),
-                CabRegistrationRequest.builder().driverName("Dika").vehicleNumber("MH XY 1234").build(),
-                CabRegistrationRequest.builder().driverName("Daaye").vehicleNumber("MH XY 1234").build(),
-                CabRegistrationRequest.builder().driverName("Damma").vehicleNumber("MH XY 1234").build(),
-                CabRegistrationRequest.builder().driverName("Nika").vehicleNumber("MH XY 1234").build())
-                .forEach(request -> {
-                    cabController.register(request);
-                    try { Thread.sleep(100); } catch (InterruptedException e){ }
-                });
+        cabController.updateState(cabIds.get(3), CabState.ON_TRIP);
+        cabController.updateState(cabIds.get(4), CabState.ON_TRIP);
 
+        Calendar calendar = Calendar.getInstance();
+        calendar.add(Calendar.DAY_OF_MONTH, 3);
+        ResponseEntity<String> bookRespEntity = cabController.book("testId", "Mumbai", "Jaipur", new Date(), calendar.getTime());
+        assertEquals(HttpStatus.OK, bookRespEntity.getStatusCode());
+
+        String tripId = bookRespEntity.getBody();
+        Trip trip = tripRepository.findById(tripId);
+        assertNotNull(trip);
+        assertNotNull(trip.getCab());
+        assertEquals(cabIds.get(5), trip.getCab().getId());
+    }
+
+
+    private CabRegistrationRequest getTestCabRegistrationRequest() {
+        return CabRegistrationRequest.builder()
+                .driverName("Anil")
+                .vehicleNumber("MH XY 1234")
+                .build();
+    }
+
+    @Test
+    public void testCabIdleDurationWithinGivenTime() {
+        initCitiesAndCabs();
+
+        List<String> cabIds = getCabIdsWithUpdatedLocation();
+
+        cabController.updateAvailability(cabIds.get(0), false); // delhi
+        cabController.updateAvailability(cabIds.get(3), false); // mumbai
+
+        cabController.updateState(cabIds.get(3), CabState.ON_TRIP);
+        cabController.updateState(cabIds.get(4), CabState.ON_TRIP);
+
+        long cabIdleDuration = cabService.getCabIdleDuration(cabIds.get(6), getCustomDate(-2), new Date());
+        System.out.println("Total time (ms) cab " + cabIds.get(6) + " was idle is : " + cabIdleDuration);
+    }
+
+    @Test
+    public void testCabHistoryWithinGivenTime() {
+        initCitiesAndCabs();
+
+        List<String> cabIds = getCabIdsWithUpdatedLocation();
+
+        cabController.updateAvailability(cabIds.get(0), false); // delhi
+        cabController.updateAvailability(cabIds.get(3), false); // mumbai
+
+        cabController.updateState(cabIds.get(3), CabState.ON_TRIP);
+        cabController.updateState(cabIds.get(4), CabState.ON_TRIP);
+        cabController.updateState(cabIds.get(0), CabState.ON_TRIP);
+        cabController.updateState(cabIds.get(3), CabState.IDLE);
+        cabController.updateState(cabIds.get(0), CabState.IDLE);
+        cabController.updateState(cabIds.get(3), CabState.ON_TRIP);
+
+        List<CabTravelRecord> cabHistory = cabService.getCabHistoryInDuration(cabIds.get(3), getCustomDate(-2), new Date());
+        cabHistory.forEach(System.out::println);
+    }
+
+    @After
+    public void tearDown() {
+        cleanupAll();
+    }
+
+    private Date getCustomDate(int offset) {
+        Calendar calendar = Calendar.getInstance();
+        calendar.add(Calendar.DAY_OF_MONTH, offset);
+        return calendar.getTime();
+    }
+
+    private List<String> getCabIdsWithUpdatedLocation() {
         List<Cab> allCabs = cabRepository.getAllCabs();
         LOGGER.info("Created cabs:");
         allCabs.forEach(cab -> LOGGER.info("{}", cab));
@@ -109,35 +168,34 @@ public class CabControllerIT extends CabManagementITBase {
         cabController.updateLocation(cabIds.get(4), "Mumbai");
         cabController.updateLocation(cabIds.get(5), "Mumbai");
         cabController.updateLocation(cabIds.get(6), "Mumbai");
-
-        cabController.updateAvailability(cabIds.get(0), false); // delhi
-        cabController.updateAvailability(cabIds.get(3), false); // mumbai
-
-        cabController.updateState(cabIds.get(3), CabState.ON_TRIP);
-        cabController.updateState(cabIds.get(4), CabState.ON_TRIP);
-
-        Calendar calendar = Calendar.getInstance();
-        calendar.add(Calendar.DAY_OF_MONTH, 3);
-        ResponseEntity<String> bookRespEntity = cabController.book(riderId, "Mumbai", "Jaipur", new Date(), calendar.getTime());
-        assertEquals(HttpStatus.OK, bookRespEntity.getStatusCode());
-
-        String tripId = bookRespEntity.getBody();
-        Trip trip = tripRepository.findById(tripId);
-        assertNotNull(trip);
-        assertNotNull(trip.getCab());
-        assertEquals(cabIds.get(5), trip.getCab().getId());
+        return cabIds;
     }
 
-    private CabRegistrationRequest getTestCabRegistrationRequest() {
-        return CabRegistrationRequest.builder()
-                .driverName("Anil")
-                .vehicleNumber("MH XY 1234")
-                .build();
-    }
+    private void initCitiesAndCabs() {
+        cityController.onBoard("Mumbai");
+        cityController.onBoard("Delhi");
+        cityController.onBoard("Pune");
+        cityController.onBoard("Goa");
 
-    @After
-    public void tearDown() {
-        cleanupAll();
-    }
+        ResponseEntity<String> registerRespEntity = cabController.register(getTestCabRegistrationRequest());
+        assertEquals(HttpStatus.OK, registerRespEntity.getStatusCode());
 
+        riderRepository.save(new Rider("testId", "GhostRider", "1234567890"));
+
+        Stream.of(
+                CabRegistrationRequest.builder().driverName("Anil").vehicleNumber("MH XY 1234").build(),
+                CabRegistrationRequest.builder().driverName("Enna").vehicleNumber("MH XY 1234").build(),
+                CabRegistrationRequest.builder().driverName("Meena").vehicleNumber("MH XY 1234").build(),
+                CabRegistrationRequest.builder().driverName("Dika").vehicleNumber("MH XY 1234").build(),
+                CabRegistrationRequest.builder().driverName("Daaye").vehicleNumber("MH XY 1234").build(),
+                CabRegistrationRequest.builder().driverName("Damma").vehicleNumber("MH XY 1234").build(),
+                CabRegistrationRequest.builder().driverName("Nika").vehicleNumber("MH XY 1234").build())
+                .forEach(request -> {
+                    cabController.register(request);
+                    try {
+                        Thread.sleep(100);
+                    } catch (InterruptedException e) {
+                    }
+                });
+    }
 }

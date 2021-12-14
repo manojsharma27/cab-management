@@ -3,6 +3,7 @@ package com.ms.cabmgmt.repository;
 import com.ms.cabmgmt.enums.CabState;
 import com.ms.cabmgmt.models.Cab;
 import com.ms.cabmgmt.repository.data.CabIdleDurationEntry;
+import com.ms.cabmgmt.repository.data.CabTravelRecord;
 import org.apache.commons.collections4.list.UnmodifiableList;
 import org.springframework.stereotype.Component;
 
@@ -21,10 +22,12 @@ public class CabRepositoryImpl implements ICabRepository {
 
     private Map<String, Cab> cabMap;
     private Map<String, List<CabIdleDurationEntry>> idleDurationMap;
+    private Map<String, List<CabTravelRecord>> travelHistoryMap;
 
     public CabRepositoryImpl() {
         cabMap = new HashMap<>();
         idleDurationMap = new HashMap<>();
+        travelHistoryMap = new HashMap<>();
     }
 
     @Override
@@ -88,5 +91,23 @@ public class CabRepositoryImpl implements ICabRepository {
                 .filter(entry -> cabIds.contains(entry.getCabId()))
                 .filter(entry -> entry.getFromTime().getTime() >= from && (entry.getToTime() == null || entry.getToTime().getTime() <= to))
                 .collect(Collectors.toList());
+    }
+
+    @Override
+    public List<CabTravelRecord> getHistoryForCabsInDateRange(Set<String> cabIds, Date fromTime, Date toTime) {
+        long from = fromTime.getTime();
+        long to = toTime.getTime();
+        return travelHistoryMap.values().stream()
+                .flatMap(Collection::stream)
+                .filter(entry -> cabIds.contains(entry.getCabId()))
+                .filter(entry -> entry.getDate().getTime() >= from && entry.getDate().getTime() <= to)
+                .collect(Collectors.toList());
+    }
+
+    @Override
+    public void addCabTravelRecord(String cabId, CabState newState, Date currDate) {
+        CabTravelRecord cabTravelRecord = new CabTravelRecord(cabId, currDate, newState);
+        travelHistoryMap.computeIfAbsent(cabId, x -> new LinkedList<>());
+        travelHistoryMap.get(cabId).add(cabTravelRecord);
     }
 }
